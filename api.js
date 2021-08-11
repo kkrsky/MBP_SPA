@@ -4,6 +4,9 @@ const logMaxRow = 101;
 const spreadSheet_log = SpreadsheetApp.openById(MASTER_SPREAD_SHEET_ID);
 const spreadSheet_master = SpreadsheetApp.openById(MASTER_SPREAD_SHEET_ID);
 const sheet_log = spreadSheet_log.getSheetByName("log");
+//debug setting
+let isDebugClear = false;
+let logStartTime = 0;
 ///////////////////////////
 /////////utils/////////////
 ///////////////////////////
@@ -17,7 +20,6 @@ async function test() {
       income: null,
       outgo: 3000,
       memo: "メモメモ1",
-      memo2: "メモメモ1",
     },
   });
   // const result = onGet({ yearMonth: "2020-07" });
@@ -28,6 +30,9 @@ async function test() {
 //private key
 function getEnv(key) {
   return PropertiesService.getScriptProperties().getProperty(key);
+}
+function setEnv(key, val) {
+  PropertiesService.getScriptProperties().setProperty(key, val);
 }
 
 ///////////////////////////
@@ -95,11 +100,11 @@ class BaseClassWrapper {
 class DoSheet extends BaseClassWrapper {
   constructor(obj) {
     super();
+    this.dbIdKey = "_ID";
     let { sheetId, sheetName, dataLabelArry, isIncrement } = obj;
     this.isIncrement = isIncrement ? true : false;
-    const incrementId = "_ID";
-    if (this.isIncrement && dataLabelArry.indexOf(incrementId) === -1) {
-      dataLabelArry.unshift(incrementId);
+    if (this.isIncrement && dataLabelArry.indexOf(this.dbIdKey) === -1) {
+      dataLabelArry.unshift(this.dbIdKey);
     }
 
     if (!sheetId) sheetId = MASTER_SPREAD_SHEET_ID;
@@ -180,7 +185,56 @@ class DoSheet extends BaseClassWrapper {
 
     return list;
   }
+  isValid(data) {
+    if (Array.isArray(data)) {
+      //arry
+      //valid01 配列の長さがデータラベルと等しい
+      let dataLength = this.isIncrement ? data.length + 1 : data.length;
+      if (this.dataLabelArry.length !== dataLength) {
+        debug(
+          "error:validate data length is not same dataLabelArry length",
+          data
+        );
+        return false;
+      }
+      return true;
 
+      //valid02
+    } else if (typeof data === "object") {
+      if (this.isIncrement) {
+        data[this.dbIdKey] = {};
+      }
+      const dataKeyArry = Object.keys(data);
+      //valid01 objectのkeyとDBのkeyが一致しているかチェック
+      let isNotKeySame = this.dataLabelArry.find((label) => {
+        return dataKeyArry.indexOf(label) === -1;
+      });
+      debug("isNotKeySame", isNotKeySame, dataKeyArry);
+
+      if (isNotKeySame) {
+        debug(
+          "error:validate data key is not same dataLabelArry key",
+          dataKeyArry
+        );
+        return false;
+      }
+
+      //valid02 keyの長さが一致する。
+      if (this.dataLabelArry.length !== dataKeyArry.length) {
+        debug(
+          "error:validate data key length is not equal to the dataLabelArry",
+          "label:" + this.dataLabelArry.length + " data:" + dataKeyArry.length
+        );
+        return false;
+      }
+
+      //result true
+      return true;
+    } else {
+      debug("error:validate data is not array or object", data);
+      return false;
+    }
+  }
   //action
   async updateSheetDataArry() {
     if (this.isDatabase) {
@@ -301,7 +355,7 @@ class DoSheet extends BaseClassWrapper {
     } else if (typeof arr === "object") {
       let appendArry = this.dataLabelArry.map((label) => {
         //validでappendするobjとlabelが一致することを保証する
-        if (label === "_ID") return sheetDataArry.length + 1;
+        if (label === this.dbIdKey) return sheetDataArry.length + 1;
         return arr[label];
       });
       // debug("appendArry", appendArry);
@@ -321,88 +375,62 @@ class DoSheet extends BaseClassWrapper {
 class DoDatabase extends BaseClassWrapper {
   constructor(obj) {
     super();
-    let { sheetId, sheetName, dataLabelArry, isIncrement } = obj;
+    this.dbIdKey = "_ID";
+
+    let { sheetId, sheetName, isIncrement } = obj;
     this.isIncrement = isIncrement ? true : false;
-    const incrementId = "_ID";
-    if (this.isIncrement && dataLabelArry.indexOf(incrementId) === -1) {
-      dataLabelArry.unshift(incrementId);
-    }
+
     if (!sheetId) sheetId = MASTER_SPREAD_SHEET_ID;
     this.sheetId = sheetId;
-    this.dataLabelArry = dataLabelArry;
+    // this.dataLabelArry = dataLabelArry;
 
     //
     this.databaseArry = [];
+    this.spreadSheet;
+    this.sheet;
     this.initDatabase();
   }
-  initDatabase() {
-    this.createDatabase({
-      sheetName: "2021-08",
-    });
-    this.createDatabase({
-      sheetName: "2021-07",
+  async initDatabase() {
+    this.spreadSheet = SpreadsheetApp.openById(this.sheetId);
+    let sheetNameArry = this.spreadSheet
+      .getSheets()
+      .map((sheet) => sheet.getName());
+    //createDatabase
+    sheetNameArry.forEach(async (name) => {
+      let dataLabelArry = await this.getDataLabelArry(name);
+      // debug("tes dataLabelArry", dataLabelArry);
+      if (dataLabelArry) {
+        this.createDatabase({
+          sheetName: name,
+          dataLabelArry,
+        });
+        // debug("this.databaseArry", this.databaseArry);
+      }
     });
   }
-  isValid(data) {
-    if (Array.isArray(data)) {
-      //arry
-      //valid01 配列の長さがデータラベルと等しい
-      let dataLength = this.isIncrement ? data.length + 1 : data.length;
-      if (this.dataLabelArry.length !== dataLength) {
-        debug(
-          "error:validate data length is not same dataLabelArry length",
-          data
-        );
-        return false;
-      }
-      return true;
-
-      //valid02
-    } else if (typeof data === "object") {
-      if (this.isIncrement) {
-        data["_ID"] = {};
-      }
-      const dataKeyArry = Object.keys(data);
-      //valid01 objectのkeyとDBのkeyが一致しているかチェック
-      let isNotKeySame = this.dataLabelArry.find((label) => {
-        return dataKeyArry.indexOf(label) === -1;
-      });
-      debug("isNotKeySame", isNotKeySame, dataKeyArry);
-
-      if (isNotKeySame) {
-        debug(
-          "error:validate data key is not same dataLabelArry key",
-          dataKeyArry
-        );
-        return false;
-      }
-
-      //valid02 keyの長さが一致する。
-      if (this.dataLabelArry.length !== dataKeyArry.length) {
-        debug(
-          "error:validate data key length is not equal to the dataLabelArry",
-          "label:" + this.dataLabelArry.length + " data:" + dataKeyArry.length
-        );
-        return false;
-      }
-
-      //result true
-      return true;
-    } else {
-      debug("error:validate data is not array or object", data);
-      return false;
-    }
+  async getDataLabelArry(sheetName) {
+    let sheet = this.spreadSheet.getSheetByName(sheetName);
+    if (!sheet) return false;
+    let lastCol = sheet.getLastColumn();
+    let dataLabelArry = await sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    if (dataLabelArry[0] !== this.dbIdKey) return false;
+    return dataLabelArry;
   }
   getDatabaseByName(name) {
     return this.databaseArry.find((db) => {
       return db.sheetName === name;
     });
   }
-  createDatabase({ sheetId, sheetName, options }) {
+  createDatabase({ sheetId, sheetName, dataLabelArry, options }) {
     let isIncrement = this.isIncrement;
-    let dataLabelArry = this.dataLabelArry;
-    if (!sheetName) {
-      debug("error:sheetName or dataLabelArry is invailed");
+    if (!sheetId) sheetId = this.sheetId;
+    // let dataLabelArry = this.dataLabelArry;
+    if (!sheetName || !dataLabelArry) {
+      debug(
+        "error:sheetName or dataLabelArry is invailed",
+        sheetName,
+        dataLabelArry
+      );
       return false;
     } else {
       const createdSheet = new DoSheet({
@@ -418,15 +446,6 @@ class DoDatabase extends BaseClassWrapper {
 }
 const database_account = new DoDatabase({
   sheetId: MASTER_SPREAD_SHEET_ID,
-  dataLabelArry: [
-    "date",
-    "title",
-    "category",
-    "tags",
-    "income",
-    "outgo",
-    "memo",
-  ],
   isIncrement: true,
 });
 
@@ -464,20 +483,30 @@ function onGet({ yearMonth }) {
  */
 async function onPost({ item }) {
   debug("onPost", item);
-  debug("database_account.isValid(item", database_account.isValid(item));
-  if (!database_account.isValid(item)) {
+  const { date } = item;
+  const yearMonth = date.slice(0, 7);
+  const sheet_db =
+    database_account.getDatabaseByName(yearMonth) ||
+    database_account.createDatabase({
+      sheetName: yearMonth,
+      dataLabelArry: [
+        "date",
+        "title",
+        "category",
+        "tags",
+        "income",
+        "outgo",
+        "memo",
+      ],
+    });
+  // let item_test = { b: 10, c: 20 };
+  // item = item_test;
+  if (!sheet_db.isValid(item)) {
     return {
       error: "isValid error:正しい形式で入力してください",
     };
   }
-  const { date } = item;
-  const yearMonth = date.slice(0, 7);
 
-  let sheet_db =
-    database_account.getDatabaseByName(yearMonth) ||
-    database_account.createDatabase({
-      sheetName: yearMonth,
-    });
   let appendTestObj = {
     date: "date",
     title: "title",
@@ -490,7 +519,7 @@ async function onPost({ item }) {
   let appendTestArry = [1, 2, 3, 4, 5, 6, 7];
 
   let appendedArry = await sheet_db.appendRow(item);
-  debug("appendedArry", appendedArry);
+  // debug("appendedArry", appendedArry);
   if (appendedArry) return appendedArry;
   else
     return {
@@ -503,8 +532,7 @@ async function onPost({ item }) {
  * @param {String} level
  * @param {String} message
  */
-let isDebugClear = false;
-let logStartTime = 0;
+
 function debug(...msgArry) {
   if (!isDebugClear) {
     logStartTime = new Date().getTime();
