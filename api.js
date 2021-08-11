@@ -94,7 +94,13 @@ class BaseClassWrapper {
 class DoSheet extends BaseClassWrapper {
   constructor(obj) {
     super();
-    let { sheetId, sheetName, dataLabelArry } = obj;
+    let { sheetId, sheetName, dataLabelArry, isIncrement } = obj;
+    this.isIncrement = isIncrement ? true : false;
+    const incrementId = "_ID";
+    if (this.isIncrement && dataLabelArry.indexOf(incrementId) === -1) {
+      dataLabelArry.unshift(incrementId);
+    }
+
     if (!sheetId) sheetId = MASTER_SPREAD_SHEET_ID;
     this.sheetId = sheetId;
     this.sheetName = sheetName;
@@ -277,25 +283,12 @@ class DoSheet extends BaseClassWrapper {
     // debug('appendRow',arr)
     await this.updateSheetDataArry();
     let sheetDataArry = this.getSheetDataArry;
-    debug("appendRow sheetDataArry", sheetDataArry);
+    // debug("appendRow sheetDataArry", sheetDataArry);
 
-    if (!option) {
-      option = {
-        isIncrement: false,
-      };
-    }
-    let { isIncrement } = option;
     if (Array.isArray(arr)) {
-      if (isIncrement) {
-        // let sheetDataArry = await this.updateSheetDataArry();
-
-        if (sheetDataArry.length > 1) {
-          let lastId = sheetDataArry.pop()[0];
-          arr.unshift(lastId + 1);
-        } else {
-          //id=1のデータがない
-          arr.unshift(1);
-        }
+      if (this.isIncrement) {
+        let lastId = sheetDataArry.length;
+        arr.unshift(lastId + 1);
       }
       let lastCol = this.dataLabelArry.length;
       if (arr.length > lastCol || arr.length < lastCol) {
@@ -305,50 +298,13 @@ class DoSheet extends BaseClassWrapper {
 
       return arr;
     } else if (typeof arr === "object") {
-      debug("obj appendRow");
-      let keys = Object.keys(arr);
-      let maxCol = this.dataLabelArry.length;
-
-      //return [[index,data],...]
-
-      let connectArry = keys.map(async (key, key_i) => {
-        if (key_i === 0 && isIncrement) {
-          // let sheetDataArry = await this.updateSheetDataArry();
-          debug("sheetDataArry", sheetDataArry);
-
-          let lastId = sheetDataArry.pop()[0];
-          debug("sheetDataArry2", sheetDataArry);
-          debug("lastId", lastId);
-
-          return [0, lastId + 1];
-        }
-        let index = this.dataLabelArry.indexOf(key);
-        if (index < 0) {
-          maxCol += 1;
-          return [maxCol, arr[key]];
-        } else {
-          return [index, arr[key]];
-        }
+      let appendArry = this.dataLabelArry.map((label) => {
+        //validでappendするobjとlabelが一致することを保証する
+        if (label === "_ID") return sheetDataArry.length + 1;
+        return arr[label];
       });
-      debug("connectArry", connectArry);
-
-      let appendArry = [];
-      for (let i = 0; i < maxCol; i++) {
-        appendArry[i] = 0;
-      }
-
-      appendArry = appendArry.map((v, index) => {
-        let connectA = connectArry.find((connect) => {
-          return connect[0] === index;
-        });
-        return connectA[1];
-      });
-      try {
-        this.sheet.appendRow(appendArry);
-        debug("appendArry at Obj", appendArry);
-      } catch (e) {
-        debug("error:appendRow", e);
-      }
+      // debug("appendArry", appendArry);
+      this.sheet.appendRow(appendArry);
       return appendArry;
     } else {
       debug("error:appendRow item is not array or object");
@@ -364,7 +320,12 @@ class DoSheet extends BaseClassWrapper {
 class DoDatabase extends BaseClassWrapper {
   constructor(obj) {
     super();
-    let { sheetId, sheetName, dataLabelArry, options } = obj;
+    let { sheetId, sheetName, dataLabelArry, isIncrement } = obj;
+    this.isIncrement = isIncrement ? true : false;
+    const incrementId = "_ID";
+    if (this.isIncrement && dataLabelArry.indexOf(incrementId) === -1) {
+      dataLabelArry.unshift(incrementId);
+    }
     if (!sheetId) sheetId = MASTER_SPREAD_SHEET_ID;
     this.sheetId = sheetId;
     this.dataLabelArry = dataLabelArry;
@@ -430,13 +391,19 @@ class DoDatabase extends BaseClassWrapper {
       return db.sheetName === name;
     });
   }
-  createDatabase({ sheetId, sheetName }) {
+  createDatabase({ sheetId, sheetName, options }) {
+    let isIncrement = this.isIncrement;
     let dataLabelArry = this.dataLabelArry;
     if (!sheetName) {
       debug("error:sheetName or dataLabelArry is invailed");
       return false;
     } else {
-      const createdSheet = new DoSheet({ sheetId, sheetName, dataLabelArry });
+      const createdSheet = new DoSheet({
+        sheetId,
+        sheetName,
+        dataLabelArry,
+        isIncrement,
+      });
       this.databaseArry.push(createdSheet);
       return createdSheet;
     }
@@ -445,7 +412,6 @@ class DoDatabase extends BaseClassWrapper {
 const database_account = new DoDatabase({
   sheetId: MASTER_SPREAD_SHEET_ID,
   dataLabelArry: [
-    "id",
     "date",
     "title",
     "category",
@@ -454,13 +420,13 @@ const database_account = new DoDatabase({
     "outgo",
     "memo",
   ],
+  isIncrement: true,
 });
 
 // const sheet_test = new DoSheet({
 //   sheetId: MASTER_SPREAD_SHEET_ID,
 //   sheetName: "2021-08",
 //   dataLabelArry: [
-//     "id",
 //     "日付",
 //     "タイトル",
 //     "カテゴリ",
