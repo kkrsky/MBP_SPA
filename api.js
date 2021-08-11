@@ -7,8 +7,8 @@ const sheet_log = spreadSheet_log.getSheetByName("log");
 ///////////////////////////
 /////////utils/////////////
 ///////////////////////////
-function test() {
-  const result = onPost({
+async function test() {
+  const result = await onPost({
     item: {
       date: "2020-07-01",
       title: "支出サンプル",
@@ -16,7 +16,8 @@ function test() {
       tags: "タグ1,タグ2",
       income: null,
       outgo: 3000,
-      memo: "メモメモ",
+      memo: "メモメモ1",
+      memo2: "メモメモ1",
     },
   });
   // const result = onGet({ yearMonth: "2020-07" });
@@ -343,15 +344,10 @@ class DoDatabase extends BaseClassWrapper {
     });
   }
   isValid(data) {
-    return true;
-    let isAutoIncrement = false;
-    if (this.dataLabelArry.indexOf("id") !== -1) {
-      isAutoIncrement = true;
-    }
     if (Array.isArray(data)) {
       //arry
-      //配列の長さがデータラベルと等しい
-      let dataLength = isAutoIncrement ? data.length + 1 : data.length;
+      //valid01 配列の長さがデータラベルと等しい
+      let dataLength = this.isIncrement ? data.length + 1 : data.length;
       if (this.dataLabelArry.length !== dataLength) {
         debug(
           "error:validate data length is not same dataLabelArry length",
@@ -359,31 +355,42 @@ class DoDatabase extends BaseClassWrapper {
         );
         return false;
       }
-
       return true;
-    } else if (typeof data === "object") {
-      //objectのkeyとDBのkeyが一致しているかチェック
-      if (isAutoIncrement) {
-        data["id"] = {};
-      }
 
-      let dataKeyArry = Object.keys(data);
+      //valid02
+    } else if (typeof data === "object") {
+      if (this.isIncrement) {
+        data["_ID"] = {};
+      }
+      const dataKeyArry = Object.keys(data);
+      //valid01 objectのkeyとDBのkeyが一致しているかチェック
       let isNotKeySame = this.dataLabelArry.find((label) => {
         return dataKeyArry.indexOf(label) === -1;
       });
+      debug("isNotKeySame", isNotKeySame, dataKeyArry);
 
       if (isNotKeySame) {
         debug(
           "error:validate data key is not same dataLabelArry key",
           dataKeyArry
         );
-
         return false;
       }
 
+      //valid02 keyの長さが一致する。
+      if (this.dataLabelArry.length !== dataKeyArry.length) {
+        debug(
+          "error:validate data key length is not equal to the dataLabelArry",
+          "label:" + this.dataLabelArry.length + " data:" + dataKeyArry.length
+        );
+        return false;
+      }
+
+      //result true
       return true;
     } else {
       debug("error:validate data is not array or object", data);
+      return false;
     }
   }
   getDatabaseByName(name) {
@@ -423,20 +430,6 @@ const database_account = new DoDatabase({
   isIncrement: true,
 });
 
-// const sheet_test = new DoSheet({
-//   sheetId: MASTER_SPREAD_SHEET_ID,
-//   sheetName: "2021-08",
-//   dataLabelArry: [
-//     "日付",
-//     "タイトル",
-//     "カテゴリ",
-//     "タグ",
-//     "収入",
-//     "支出",
-//     "メモ",
-//   ],
-// });
-
 /**
  * 指定年月のデータ一覧を取得します
  * @param {Object} params
@@ -469,11 +462,12 @@ function onGet({ yearMonth }) {
  * @param {Object} params.item 家計簿データ
  * @returns {Object} 追加した家計簿データ
  */
-function onPost({ item }) {
+async function onPost({ item }) {
   debug("onPost", item);
+  debug("database_account.isValid(item", database_account.isValid(item));
   if (!database_account.isValid(item)) {
     return {
-      error: "正しい形式で入力してください",
+      error: "isValid error:正しい形式で入力してください",
     };
   }
   const { date } = item;
@@ -491,16 +485,12 @@ function onPost({ item }) {
     tags: "tags",
     income: "income",
     outgo: "outgo",
-    memo: "memo",
+    memo: "memo22",
   };
   let appendTestArry = [1, 2, 3, 4, 5, 6, 7];
 
-  let appendedArry = sheet_db.appendRow(appendTestObj, {
-    isIncrement: true,
-  });
+  let appendedArry = await sheet_db.appendRow(item);
   debug("appendedArry", appendedArry);
-  // let appendedArry = sheet_db.appendRow(item, { isIncrement: true });
-
   if (appendedArry) return appendedArry;
   else
     return {
@@ -516,29 +506,6 @@ function onPost({ item }) {
 let isDebugClear = false;
 let logStartTime = 0;
 function debug(...msgArry) {
-  // function debug(message, inspect, level) {
-  // function getLogFile() {
-  //   if (this.logFile === undefined) {
-  //     this.logFile = DocumentApp.openById(LOG_FILE_ID);
-  //   }
-  //   return this.logFile;
-  // }
-  // Logger.log(JSON.stringify(this, undefined, 3)); //ログ表示
-  // getLogFile().getBody().appendParagraph(Logger.getLog());
-  // Logger.log(inspect);
-
-  // if (!level) level = 1;
-  // if (!inspect) inspect = "";
-  // switch (level) {
-  //   case 0: {
-  //     level = "PROD";
-  //   }
-  //   case 1: {
-  //     level = "DEV";
-  //     if (!isDebugClear) sheet_log.clear();
-  //     isDebugClear = true;
-  //   }
-  // }
   if (!isDebugClear) {
     logStartTime = new Date().getTime();
     sheet_log.clear();
