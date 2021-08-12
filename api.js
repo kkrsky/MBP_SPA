@@ -12,39 +12,42 @@ let logStartTime = 0;
 ///////////////////////////
 async function test() {
   //test post
-  // const result = await onPost({
-  //   item: {
-  //     createAt: "2020-05-01",
-  //     deleteAt: null,
-  //     updateAt: null,
-  //     title: "支出サンプル",
-  //     category: "食費",
-  //     tags: "タグ1,タグ2",
-  //     income: null,
-  //     outgo: 3000,
-  //     memo: "メモメモ1",
-  //   },
-  //   options: {
-  //     isIncrement: true,
-  //     isUUID: true,
-  //   },
-  // });
+  const result = await onPost({
+    item: {
+      _ID: "2",
+      UUID: "test",
+      createAt: "2020-05-01",
+      deleteAt: null,
+      updateAt: null,
+      title: "支出サンプル",
+      category: "食費",
+      tags: "タグ1,タグ2",
+      income: null,
+      outgo: 3000,
+      memo: "メモメモ1",
+    },
+    options: {
+      isIncrement: true,
+      isUUID: true,
+    },
+  });
 
   //test get
   // const result = onGet({ sheetName: "2020-05" });
 
   //test delete
-  const result = await onDelete({
-    sheetName: "2020-05",
-    uuid: "96442047-8bd4-40c1-be10-e50d6656e296",
-  });
+  // const result = await onDelete({
+  //   sheetName: "2020-05",
+  //   uuid: "96442047-8bd4-40c1-be10-e50d6656e296",
+  // });
 
-  //test put
+  // test put
   // const result = onPut({
-  //   sheetName_before: "2020-06",
+  //   sheetName_before: "2020-05",
   //   item: {
   //     _ID: 2,
-  //     createAt: "2020-06-01",
+  //     UUID: "96442047-8bd4-40c1-be10-e50d6656e296",
+  //     createAt: "2020-05-01",
   //     deleteAt: null,
   //     updateAt: null,
   //     title: "update",
@@ -271,7 +274,7 @@ class DoSheet extends BaseClassWrapper {
         data[this.dbIdKey] = {};
       }
       if (this.options.isUUID) {
-        data[this.uuidKey] = {};
+        if (!data[this.uuidKey]) data[this.uuidKey] = false; //データがある場合は初期化しない
       }
       const dataKeyArry = Object.keys(data);
       //valid01 objectのkeyとDBのkeyが一致しているかチェック
@@ -298,7 +301,7 @@ class DoSheet extends BaseClassWrapper {
       }
 
       //valid3 既にあるデータの長さと挿入するデータの長さが等しい
-      if (lastData.length !== dataKeyArry.length) {
+      if (lastData && lastData.length !== dataKeyArry.length) {
         debug("error:validate data length is not same last data length", data);
         return false;
       }
@@ -412,20 +415,40 @@ class DoSheet extends BaseClassWrapper {
       return filteredArry;
     }
   }
-  async appendRow(arr, option) {
+  async appendRow(arr, options) {
     // debug('appendRow',arr)
     await this.updateSheetDataArry();
     let sheetDataArry = this.getSheetDataArry;
     // debug("appendRow sheetDataArry", sheetDataArry);
 
     if (Array.isArray(arr)) {
-      if (this.options.isUUID) {
-        arr.unshift(Utilities.getUuid());
+      if (this.options.isUUID && this.options.isIncrement) {
+        if (this.dataLabelArry.length === arr.length) {
+          let lastId = sheetDataArry.length;
+
+          arr.shift(); //_IDを削除
+          arr.unshift(lastId + 1);
+        } else if (this.dataLabelArry.length - 1 === arr.length) {
+          let lastId = sheetDataArry.length;
+          arr.unshift(lastId + 1);
+        }
+      } else if (this.options.isUUID && !this.options.isIncrement) {
+        if (this.dataLabelArry.length === arr.length) {
+          //null
+        } else if (this.dataLabelArry.length - 1 === arr.length) {
+          arr.unshift(Utilities.getUuid());
+        }
+      } else if (!this.options.isUUID && this.options.isIncrement) {
+        if (this.dataLabelArry.length === arr.length) {
+          let lastId = sheetDataArry.length;
+          arr.shift(); //_IDを削除
+          arr.unshift(lastId + 1);
+        } else if (this.dataLabelArry.length - 1 === arr.length) {
+          let lastId = sheetDataArry.length;
+          arr.unshift(lastId + 1);
+        }
       }
-      if (this.options.isIncrement) {
-        let lastId = sheetDataArry.length;
-        arr.unshift(lastId + 1);
-      }
+
       let lastCol = this.dataLabelArry.length;
       if (arr.length > lastCol || arr.length < lastCol) {
         debug("appendRow arry(" + arr.length + ") should be length=" + lastCol);
@@ -436,8 +459,14 @@ class DoSheet extends BaseClassWrapper {
     } else if (typeof arr === "object") {
       let appendArry = this.dataLabelArry.map((label) => {
         //validでappendするobjとlabelが一致することを保証すると仮定
-        if (label === this.dbIdKey) return sheetDataArry.length + 1;
-        if (label === this.uuidKey) return Utilities.getUuid();
+        if (label === this.dbIdKey) {
+          return sheetDataArry.length + 1; //強制的に書き込む
+        }
+        if (label === this.uuidKey) {
+          if (arr[label]) return arr[label];
+          //uuidが残っている場合はそのまま
+          else return Utilities.getUuid();
+        }
         return arr[label];
       });
       // debug("appendArry", appendArry);
@@ -697,7 +726,7 @@ function onPut({ sheetName_before, item }) {
   const { createAt } = item;
   const sheetName = createAt.slice(0, 7);
   if (sheetName_before !== sheetName) {
-    onDelete({ sheetName: sheetName_before, id: item._ID });
+    onDelete({ sheetName: sheetName_before, uuid: item.UUID });
     return onPost({ item });
   }
 }
