@@ -11,9 +11,10 @@ let logStartTime = 0;
 /////////utils/////////////
 ///////////////////////////
 async function test() {
+  //test post
   // const result = await onPost({
   //   item: {
-  //     createAt: "2020-06-01",
+  //     createAt: "2020-05-01",
   //     deleteAt: null,
   //     updateAt: null,
   //     title: "支出サンプル",
@@ -23,9 +24,37 @@ async function test() {
   //     outgo: 3000,
   //     memo: "メモメモ1",
   //   },
+  //   options: {
+  //     isIncrement: true,
+  //     isUUID: true,
+  //   },
   // });
-  // const result = onGet({ yearMonth: "2020-07" });
-  const result = onDelete({ sheetName: "2020-06", _ID: "2" });
+
+  //test get
+  // const result = onGet({ sheetName: "2020-05" });
+
+  //test delete
+  const result = await onDelete({
+    sheetName: "2020-05",
+    uuid: "96442047-8bd4-40c1-be10-e50d6656e296",
+  });
+
+  //test put
+  // const result = onPut({
+  //   sheetName_before: "2020-06",
+  //   item: {
+  //     _ID: 2,
+  //     createAt: "2020-06-01",
+  //     deleteAt: null,
+  //     updateAt: null,
+  //     title: "update",
+  //     category: "食費",
+  //     tags: "タグ1,タグ2",
+  //     income: null,
+  //     outgo: 3000,
+  //     memo: "メモメモ1",
+  //   },
+  // });
 
   debug("result", result);
 }
@@ -115,9 +144,16 @@ class DoSheet extends BaseClassWrapper {
   constructor(obj) {
     super();
     this.dbIdKey = "_ID";
-    let { sheetId, sheetName, dataLabelArry, isIncrement } = obj;
-    this.isIncrement = isIncrement ? true : false;
-    if (this.isIncrement && dataLabelArry.indexOf(this.dbIdKey) === -1) {
+    this.uuidKey = "UUID";
+    let { sheetId, sheetName, dataLabelArry, options } = obj;
+    this.options = options ? options : { isIncrement: true, isUUID: true };
+    if (this.options.isUUID && dataLabelArry.indexOf(this.uuidKey) === -1) {
+      dataLabelArry.unshift(this.uuidKey);
+    }
+    if (
+      this.options.isIncrement &&
+      dataLabelArry.indexOf(this.dbIdKey) === -1
+    ) {
       dataLabelArry.unshift(this.dbIdKey);
     }
 
@@ -203,11 +239,18 @@ class DoSheet extends BaseClassWrapper {
 
     return list;
   }
-  isValid(data) {
+  async isValid(data) {
+    await this.updateSheetDataArry();
+    let lastData = this.sheetDataArry.pop();
+
     if (Array.isArray(data)) {
       //arry
+
       //valid01 配列の長さがデータラベルと等しい
-      let dataLength = this.isIncrement ? data.length + 1 : data.length;
+      let dataLength = data.length;
+      if (this.options.isIncrement) dataLength += 1;
+      if (this.options.isUUID) dataLength += 1;
+
       if (this.dataLabelArry.length !== dataLength) {
         debug(
           "error:validate data length is not same dataLabelArry length",
@@ -215,12 +258,20 @@ class DoSheet extends BaseClassWrapper {
         );
         return false;
       }
-      return true;
 
-      //valid02
+      //valid02 既にあるデータの長さと挿入するデータの長さが等しい
+      if (lastData && lastData.length !== dataLength) {
+        debug("error:validate data length is not same last data length", data);
+        return false;
+      }
+
+      return true;
     } else if (typeof data === "object") {
-      if (this.isIncrement) {
+      if (this.options.isIncrement) {
         data[this.dbIdKey] = {};
+      }
+      if (this.options.isUUID) {
+        data[this.uuidKey] = {};
       }
       const dataKeyArry = Object.keys(data);
       //valid01 objectのkeyとDBのkeyが一致しているかチェック
@@ -243,6 +294,12 @@ class DoSheet extends BaseClassWrapper {
           "error:validate data key length is not equal to the dataLabelArry",
           "label:" + this.dataLabelArry.length + " data:" + dataKeyArry.length
         );
+        return false;
+      }
+
+      //valid3 既にあるデータの長さと挿入するデータの長さが等しい
+      if (lastData.length !== dataKeyArry.length) {
+        debug("error:validate data length is not same last data length", data);
         return false;
       }
 
@@ -362,7 +419,10 @@ class DoSheet extends BaseClassWrapper {
     // debug("appendRow sheetDataArry", sheetDataArry);
 
     if (Array.isArray(arr)) {
-      if (this.isIncrement) {
+      if (this.options.isUUID) {
+        arr.unshift(Utilities.getUuid());
+      }
+      if (this.options.isIncrement) {
         let lastId = sheetDataArry.length;
         arr.unshift(lastId + 1);
       }
@@ -375,8 +435,9 @@ class DoSheet extends BaseClassWrapper {
       return arr;
     } else if (typeof arr === "object") {
       let appendArry = this.dataLabelArry.map((label) => {
-        //validでappendするobjとlabelが一致することを保証する
+        //validでappendするobjとlabelが一致することを保証すると仮定
         if (label === this.dbIdKey) return sheetDataArry.length + 1;
+        if (label === this.uuidKey) return Utilities.getUuid();
         return arr[label];
       });
       // debug("appendArry", appendArry);
@@ -398,10 +459,11 @@ class DoDatabase extends BaseClassWrapper {
   constructor(obj) {
     super();
     this.dbIdKey = "_ID";
+    this.uuidKey = "UUID";
 
-    let { sheetId, sheetName, isIncrement } = obj;
-    this.isIncrement = isIncrement ? true : false;
+    let { sheetId, sheetName, options } = obj;
 
+    this.options = options ? options : { isIncrement: true, isUUID: true };
     if (!sheetId) sheetId = MASTER_SPREAD_SHEET_ID;
     this.sheetId = sheetId;
     // this.dataLabelArry = dataLabelArry;
@@ -435,7 +497,10 @@ class DoDatabase extends BaseClassWrapper {
     if (!sheet) return false;
     let lastCol = sheet.getLastColumn();
     let dataLabelArry = await sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    if (dataLabelArry[0] !== this.dbIdKey) return false;
+    if (this.options.isIncrement && dataLabelArry.indexOf(this.dbIdKey) === -1)
+      return false;
+    if (this.options.isUUID && dataLabelArry.indexOf(this.uuidKey) === -1)
+      return false;
     return dataLabelArry;
   }
   getDatabaseByName(name) {
@@ -443,8 +508,8 @@ class DoDatabase extends BaseClassWrapper {
       return db.sheetName === name;
     });
   }
-  createDatabase({ sheetId, sheetName, dataLabelArry, isIncrement, options }) {
-    if (!isIncrement) isIncrement = this.isIncrement;
+  createDatabase({ sheetId, sheetName, dataLabelArry, options }) {
+    if (!options) options = this.options;
     if (!sheetId) sheetId = this.sheetId;
     // let dataLabelArry = this.dataLabelArry;
     if (!sheetName || !dataLabelArry) {
@@ -459,7 +524,7 @@ class DoDatabase extends BaseClassWrapper {
         sheetId,
         sheetName,
         dataLabelArry,
-        isIncrement,
+        options,
       });
       this.databaseArry.push(createdSheet);
       return createdSheet;
@@ -468,7 +533,10 @@ class DoDatabase extends BaseClassWrapper {
 }
 const database_account = new DoDatabase({
   sheetId: MASTER_SPREAD_SHEET_ID,
-  isIncrement: true,
+  options: {
+    isIncrement: true,
+    isUUID: true,
+  },
 });
 
 /**
@@ -477,15 +545,15 @@ const database_account = new DoDatabase({
  * @param {String} params.yearMonth 年月
  * @returns {Object[]} 家計簿データ
  */
-function onGet({ yearMonth }) {
+function onGet({ sheetName }) {
   const ymReg = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
 
-  if (!ymReg.test(yearMonth)) {
+  if (!ymReg.test(sheetName)) {
     return {
       error: "正しい形式で入力してください",
     };
   }
-  let db = database_account.getDatabaseByName(yearMonth);
+  let db = database_account.getDatabaseByName(sheetName);
   if (db) {
     const list = db.getDataForObj;
     return list;
@@ -502,14 +570,14 @@ function onGet({ yearMonth }) {
  * @param {Object} params.item 家計簿データ
  * @returns {Object} 追加した家計簿データ
  */
-async function onPost({ item }) {
+async function onPost({ item, options }) {
   debug("onPost", item);
   const { createAt } = item;
-  const yearMonth = createAt.slice(0, 7);
+  const sheetName = createAt.slice(0, 7);
   const sheet_db =
-    database_account.getDatabaseByName(yearMonth) ||
+    database_account.getDatabaseByName(sheetName) ||
     database_account.createDatabase({
-      sheetName: yearMonth,
+      sheetName: sheetName,
       dataLabelArry: [
         "createAt",
         "deleteAt",
@@ -521,10 +589,11 @@ async function onPost({ item }) {
         "outgo",
         "memo",
       ],
+      options: options,
     });
   // let item_test = { b: 10, c: 20 };
   // item = item_test;
-  if (!sheet_db.isValid(item)) {
+  if (!(await sheet_db.isValid(item))) {
     return {
       error: "isValid error:正しい形式で入力してください",
     };
@@ -550,50 +619,87 @@ async function onPost({ item }) {
     };
 }
 
-function onDelete({ sheetName, _ID }) {
-  let _ID_temp = _ID;
-  _ID = Number(_ID);
-
-  //valid01
-  if (isNaN(_ID)) {
-    return {
-      error: "onDelete error: _ID is NaN(" + _ID_temp + ")",
-    };
-  }
+async function onDelete({ sheetName, id, uuid }) {
+  let _ID_temp = id;
+  let _ID = Number(id);
+  let date_here = new Date();
+  date_here = formatDate(date_here, "JST", "yyyy-MM-dd_HH-mm");
   const sheet_db = database_account.getDatabaseByName(sheetName);
-
-  //valid02
-  if (!sheet_db)
-    return { error: "onDelete error:sheet(" + sheetName + ") does not exist" };
   let deleteAt_i = sheet_db.getDataLabelArry.indexOf("deleteAt");
-
-  //valid03
+  //valid01
+  if (!sheet_db)
+    return {
+      error: "onDelete error:sheet(" + sheetName + ") does not exist",
+    };
+  //valid02
   if (deleteAt_i === -1) {
     return {
       error:
         "onDelete error: deleteAt label does not exist at (" + sheetName + ")",
     };
   }
-  let dataRow = sheet_db.getSheetDataArry[_ID - 1];
 
-  //valid04
-  if (!dataRow) {
+  if (id) {
+    //valid01
+    if (isNaN(_ID)) {
+      return {
+        error: "onDelete error: _ID is NaN(" + _ID_temp + ")",
+      };
+    }
+
+    let dataRow = sheet_db.getSheetDataArry[_ID - 1];
+    //valid04
+    if (!dataRow) {
+      return {
+        error:
+          "onDelete error: data does not exist at (" +
+          sheetName +
+          " of _ID:" +
+          _ID +
+          ")",
+      };
+    }
+    let sRow = _ID + 1;
+    let sCol = deleteAt_i + 1;
+
+    sheet_db.setValue({ sRow, sCol, value: date_here });
+
+    return { message: "削除しました。" };
+  } else if (uuid) {
+    let sRow = null;
+    let sCol = deleteAt_i + 1;
+    const uuid_i = sheet_db.getDataLabelArry.indexOf("UUID");
+    await sheet_db.updateSheetDataArry();
+
+    let deleteData = sheet_db.getSheetDataArry.find((dataArry, data_i) => {
+      if (dataArry[uuid_i] === uuid) {
+        sRow = data_i + 2;
+        return true;
+      }
+      return false;
+    });
+    if (deleteData) {
+      sheet_db.setValue({ sRow, sCol, value: date_here });
+      return { message: "削除しました。" };
+    }
     return {
       error:
         "onDelete error: data does not exist at (" +
         sheetName +
-        " of _ID:" +
-        _ID +
+        " of UUID:" +
+        uuid +
         ")",
     };
   }
-  let sRow = _ID + 1;
-  let sCol = deleteAt_i + 1;
-  let date_here = new Date();
-  date_here = formatDate(date_here, "JST", "yyyy-MM-dd_HH-mm");
-  sheet_db.setValue({ sRow, sCol, value: date_here });
+}
 
-  return { message: "削除しました。" };
+function onPut({ sheetName_before, item }) {
+  const { createAt } = item;
+  const sheetName = createAt.slice(0, 7);
+  if (sheetName_before !== sheetName) {
+    onDelete({ sheetName: sheetName_before, id: item._ID });
+    return onPost({ item });
+  }
 }
 
 /**
@@ -610,7 +716,9 @@ function debug(...msgArry) {
   let diffTime = new Date().getTime() - logStartTime;
   let res = [new Date(), diffTime, "DEV"];
   msgArry.forEach((msg) => {
-    if (Array.isArray(msg)) {
+    if (msg === undefined) {
+      res.push("undefined");
+    } else if (Array.isArray(msg)) {
       // res.push(typeof msg);
       res.push(JSON.stringify(msg, undefined, 3));
     } else if (typeof msg === "object") {
