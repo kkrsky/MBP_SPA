@@ -11,20 +11,22 @@ let logStartTime = 0;
 /////////utils/////////////
 ///////////////////////////
 async function test() {
-  const result = await onPost({
-    item: {
-      date: "2020-07-01",
-      title: "支出サンプル",
-      category: "食費",
-      tags: "タグ1,タグ2",
-      income: null,
-      outgo: 3000,
-      memo: "メモメモ1",
-    },
-  });
+  // const result = await onPost({
+  //   item: {
+  //     createAt: "2020-06-01",
+  //     deleteAt: null,
+  //     updateAt: null,
+  //     title: "支出サンプル",
+  //     category: "食費",
+  //     tags: "タグ1,タグ2",
+  //     income: null,
+  //     outgo: 3000,
+  //     memo: "メモメモ1",
+  //   },
+  // });
   // const result = onGet({ yearMonth: "2020-07" });
-  // insertTemplate("2021-08");
-  // Logger.log(result);
+  const result = onDelete({ sheetName: "2020-06", _ID: "2" });
+
   debug("result", result);
 }
 //private key
@@ -33,6 +35,18 @@ function getEnv(key) {
 }
 function setEnv(key, val) {
   PropertiesService.getScriptProperties().setProperty(key, val);
+}
+
+function formatDate(date, timeZone, format) {
+  //日本時間の場合は、formatDate(date, 'JST');
+  if (date === "") {
+    return "";
+  } else {
+    if (!format) var format = "yyyy/MM/dd HH:mm";
+    var retval = Utilities.formatDate(date, timeZone, format);
+    // Logger.log(date + "->" + retval + "(" + timeZone + ")");
+    return retval;
+  }
 }
 
 ///////////////////////////
@@ -141,10 +155,14 @@ class DoSheet extends BaseClassWrapper {
     return this._cp(obj);
   }
   get getDataForObj() {
+    this.initSheetDataObjArry();
     return this._cp(this.sheetDataObjArry);
   }
   get getSheetDataArry() {
     return this._cp(this.sheetDataArry);
+  }
+  get getDataLabelArry() {
+    return this.dataLabelArry;
   }
 
   //static (インスタンスを引数とする処理)
@@ -315,7 +333,10 @@ class DoSheet extends BaseClassWrapper {
       //toLabelObj
       if (toLabelObj) {
         // debug("filteredArry", filteredArry);
-        if (filteredArry.length === 0) return {};
+        if (filteredArry.length === 0) {
+          if (isExist) return false;
+          return {};
+        }
         filteredArry = filteredArry.map((dataArr, data_i) => {
           let row = dataArr[0] + 1;
           let obj = {};
@@ -369,6 +390,7 @@ class DoSheet extends BaseClassWrapper {
   setValue({ sRow, sCol, numRow, numCol, value }) {
     if (!numRow) numRow = 1;
     if (!numCol) numCol = 1;
+    debug("setValue", sRow, sCol, value);
     this.sheet.getRange(sRow, sCol, numRow, numCol).setValue(value);
   }
 }
@@ -421,8 +443,8 @@ class DoDatabase extends BaseClassWrapper {
       return db.sheetName === name;
     });
   }
-  createDatabase({ sheetId, sheetName, dataLabelArry, options }) {
-    let isIncrement = this.isIncrement;
+  createDatabase({ sheetId, sheetName, dataLabelArry, isIncrement, options }) {
+    if (!isIncrement) isIncrement = this.isIncrement;
     if (!sheetId) sheetId = this.sheetId;
     // let dataLabelArry = this.dataLabelArry;
     if (!sheetName || !dataLabelArry) {
@@ -464,7 +486,6 @@ function onGet({ yearMonth }) {
     };
   }
   let db = database_account.getDatabaseByName(yearMonth);
-  debug("db", db);
   if (db) {
     const list = db.getDataForObj;
     return list;
@@ -483,14 +504,16 @@ function onGet({ yearMonth }) {
  */
 async function onPost({ item }) {
   debug("onPost", item);
-  const { date } = item;
-  const yearMonth = date.slice(0, 7);
+  const { createAt } = item;
+  const yearMonth = createAt.slice(0, 7);
   const sheet_db =
     database_account.getDatabaseByName(yearMonth) ||
     database_account.createDatabase({
       sheetName: yearMonth,
       dataLabelArry: [
-        "date",
+        "createAt",
+        "deleteAt",
+        "updateAt",
         "title",
         "category",
         "tags",
@@ -527,10 +550,55 @@ async function onPost({ item }) {
     };
 }
 
+function onDelete({ sheetName, _ID }) {
+  let _ID_temp = _ID;
+  _ID = Number(_ID);
+
+  //valid01
+  if (isNaN(_ID)) {
+    return {
+      error: "onDelete error: _ID is NaN(" + _ID_temp + ")",
+    };
+  }
+  const sheet_db = database_account.getDatabaseByName(sheetName);
+
+  //valid02
+  if (!sheet_db)
+    return { error: "onDelete error:sheet(" + sheetName + ") does not exist" };
+  let deleteAt_i = sheet_db.getDataLabelArry.indexOf("deleteAt");
+
+  //valid03
+  if (deleteAt_i === -1) {
+    return {
+      error:
+        "onDelete error: deleteAt label does not exist at (" + sheetName + ")",
+    };
+  }
+  let dataRow = sheet_db.getSheetDataArry[_ID - 1];
+
+  //valid04
+  if (!dataRow) {
+    return {
+      error:
+        "onDelete error: data does not exist at (" +
+        sheetName +
+        " of _ID:" +
+        _ID +
+        ")",
+    };
+  }
+  let sRow = _ID + 1;
+  let sCol = deleteAt_i + 1;
+  let date_here = new Date();
+  date_here = formatDate(date_here, "JST", "yyyy-MM-dd_HH-mm");
+  sheet_db.setValue({ sRow, sCol, value: date_here });
+
+  return { message: "削除しました。" };
+}
+
 /**
  * ログをシートに記録します
- * @param {String} level
- * @param {String} message
+ * @param {any} msgArry
  */
 
 function debug(...msgArry) {
