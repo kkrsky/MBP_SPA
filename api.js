@@ -12,25 +12,25 @@ let logStartTime = 0;
 ///////////////////////////
 async function test() {
   //test post
-  const result = await onPost({
-    item: {
-      _ID: "2",
-      UUID: "test",
-      createAt: "2020-05-01",
-      deleteAt: null,
-      updateAt: null,
-      title: "支出サンプル",
-      category: "食費",
-      tags: "タグ1,タグ2",
-      income: null,
-      outgo: 3000,
-      memo: "メモメモ1",
-    },
-    options: {
-      isIncrement: true,
-      isUUID: true,
-    },
-  });
+  // const result = await onPost({
+  //   item: {
+  //     _ID: "2",
+  //     // UUID: "test",
+  //     createAt: "2020-04-01",
+  //     deleteAt: null,
+  //     updateAt: null,
+  //     title: "支出サンプル",
+  //     category: "食費",
+  //     tags: "タグ1,タグ2",
+  //     income: null,
+  //     outgo: 3000,
+  //     memo: "メモメモ1",
+  //   },
+  //   options: {
+  //     isIncrement: true,
+  //     // isUUID: true,
+  //   },
+  // });
 
   //test get
   // const result = onGet({ sheetName: "2020-05" });
@@ -42,22 +42,22 @@ async function test() {
   // });
 
   // test put
-  // const result = onPut({
-  //   sheetName_before: "2020-05",
-  //   item: {
-  //     _ID: 2,
-  //     UUID: "96442047-8bd4-40c1-be10-e50d6656e296",
-  //     createAt: "2020-05-01",
-  //     deleteAt: null,
-  //     updateAt: null,
-  //     title: "update",
-  //     category: "食費",
-  //     tags: "タグ1,タグ2",
-  //     income: null,
-  //     outgo: 3000,
-  //     memo: "メモメモ1",
-  //   },
-  // });
+  const result = await onPut({
+    sheetName_before: "2020-05",
+    item: {
+      _ID: 3,
+      UUID: "06a903c1-cbbd-4435-9291-c903163370d0",
+      createAt: "2020-05-01",
+      deleteAt: null,
+      updateAt: null,
+      title: "アップデート",
+      category: "食費",
+      tags: "タグ1,タグ2",
+      income: null,
+      outgo: 3000,
+      memo: "うpだて",
+    },
+  });
 
   debug("result", result);
 }
@@ -480,8 +480,12 @@ class DoSheet extends BaseClassWrapper {
   setValue({ sRow, sCol, numRow, numCol, value }) {
     if (!numRow) numRow = 1;
     if (!numCol) numCol = 1;
-    debug("setValue", sRow, sCol, value);
-    this.sheet.getRange(sRow, sCol, numRow, numCol).setValue(value);
+    debug("setValue", sRow, sCol, numRow, numCol, value);
+    if (Array.isArray(value)) {
+      this.sheet.getRange(sRow, sCol, numRow, numCol).setValues(value);
+    } else {
+      this.sheet.getRange(sRow, sCol, numRow, numCol).setValue(value);
+    }
   }
 }
 class DoDatabase extends BaseClassWrapper {
@@ -510,7 +514,7 @@ class DoDatabase extends BaseClassWrapper {
       .map((sheet) => sheet.getName());
     //createDatabase
     sheetNameArry.forEach(async (name) => {
-      let dataLabelArry = await this.getDataLabelArry(name);
+      let dataLabelArry = await this.getSheetDataLabelArry(name);
       // debug("tes dataLabelArry", dataLabelArry);
       if (dataLabelArry) {
         this.createDatabase({
@@ -521,7 +525,7 @@ class DoDatabase extends BaseClassWrapper {
       }
     });
   }
-  async getDataLabelArry(sheetName) {
+  async getSheetDataLabelArry(sheetName) {
     let sheet = this.spreadSheet.getSheetByName(sheetName);
     if (!sheet) return false;
     let lastCol = sheet.getLastColumn();
@@ -722,13 +726,98 @@ async function onDelete({ sheetName, id, uuid }) {
   }
 }
 
-function onPut({ sheetName_before, item }) {
+async function onPut({ sheetName_before, item }) {
   const { createAt } = item;
   const sheetName = createAt.slice(0, 7);
+  const _ID = item._ID ? item._ID : false;
+  const UUID = item.UUID ? item.UUID : false;
+
+  let sRow = false;
+  let sCol = 1;
+  let numRow = 1;
+  let numCol = null;
+
+  //valid00
+  if (!UUID) {
+    return {
+      error: "onPut error:onPut needs UUID",
+    };
+  }
+
   if (sheetName_before !== sheetName) {
     onDelete({ sheetName: sheetName_before, uuid: item.UUID });
     return onPost({ item });
   }
+
+  const sheet_db = database_account.getDatabaseByName(sheetName);
+  //valid01
+  if (!sheet_db)
+    return {
+      error: "onPut error:sheet(" + sheetName + ") does not exist",
+    };
+  // //valid 02
+  // if (!_ID && !UUID) {
+  //   return {
+  //     error: "onPut error:_ID or UUID does not exist in item",
+  //   };
+  // }
+
+  const uuid_i = UUID ? sheet_db.getDataLabelArry.indexOf("UUID") : null;
+
+  await sheet_db.updateSheetDataArry();
+  let updateData = sheet_db.getSheetDataArry.find((dataArry, data_i) => {
+    if (UUID && dataArry[uuid_i] === item.UUID) {
+      sRow = data_i + 2;
+      return true;
+    }
+    // else if (_ID && dataArry[key_i] === item._ID) {
+    //   sRow = data_i + 2;
+    //   return true;
+    // }
+    return false;
+  });
+
+  //valid 03
+  if (!updateData) {
+    //updateするデータが存在しない
+    return {
+      error: "onPut error:key of UUID items does not exist :" + UUID,
+    };
+  }
+
+  //valid 04
+  if (updateData.length !== Object.keys(item).length) {
+    //updateするデータの長さが異なる
+    return {
+      error:
+        "onPut error: update item length does not same, data:" +
+        updateData.length +
+        "update:" +
+        Object.keys(item).length,
+    };
+  }
+
+  //valid05
+  if (UUID && updateData[uuid_i] !== item.UUID) {
+    //書き込みするUUIDが異なる場合
+    return {
+      error:
+        "onPut error: UUID is different write:" +
+        item.UUID +
+        " vs exist:" +
+        updateData[uuid_i],
+    };
+  }
+
+  //obj to arry
+  let itemArry = sheet_db.getDataLabelArry.map((label, label_i) => {
+    return item[label];
+  });
+
+  //set
+  numCol = Object.keys(item).length;
+  sheet_db.setValue({ sRow, sCol, numRow, numCol, value: [itemArry] });
+  return item;
 }
 
 /**
